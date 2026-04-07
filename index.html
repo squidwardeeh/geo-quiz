@@ -210,18 +210,6 @@
     color: white;
   }
 
-  /* 글 섹션 제목 */
-  .post-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-    background: var(--accent-light);
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin-bottom: 16px;
-    line-height: 1.4;
-  }
-
   /* 퀴즈 카드 */
   .quiz-card {
     background: var(--card);
@@ -638,7 +626,6 @@ function renderQuestion() {
   const isFirstInPost = currentIdx === 0 || allQuestions[currentIdx - 1].post !== q.post;
 
   cards.innerHTML = `
-    ${isFirstInPost && q.post ? `<div class="post-title">📄 ${q.post}</div>` : ''}
     <div class="quiz-card">
       <div class="question-num">문제 ${currentIdx + 1}</div>
       <div class="question-text">${q.question}</div>
