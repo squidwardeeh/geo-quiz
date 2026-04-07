@@ -109,12 +109,106 @@
   .progress-text {
     font-size: 13px;
     color: var(--muted);
-    margin-bottom: 20px;
+    margin-bottom: 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
   .progress-text span { font-weight: 600; color: var(--accent); }
+
+  /* 문제 번호 네비게이션 */
+  .q-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .nav-arrow-btn {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    -webkit-appearance: none;
+    line-height: 1;
+  }
+  .nav-arrow-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-light);
+  }
+  .nav-arrow-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .q-chip-scroll {
+    flex: 1;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 2px 0;
+  }
+  .q-chip-scroll::-webkit-scrollbar { display: none; }
+
+  .q-chip-row {
+    display: flex;
+    gap: 6px;
+    width: max-content;
+  }
+
+  .q-chip {
+    width: 34px;
+    height: 34px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    -webkit-appearance: none;
+  }
+  .q-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .q-chip.current {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .q-chip.q-correct {
+    background: var(--correct-light);
+    border-color: var(--correct);
+    color: #16a34a;
+  }
+  .q-chip.q-correct.current {
+    background: var(--correct);
+    border-color: var(--correct);
+    color: white;
+  }
+  .q-chip.q-wrong {
+    background: var(--wrong-light);
+    border-color: var(--wrong);
+    color: #dc2626;
+  }
+  .q-chip.q-wrong.current {
+    background: var(--wrong);
+    border-color: var(--wrong);
+    color: white;
+  }
 
   /* 글 섹션 제목 */
   .post-title {
@@ -312,6 +406,16 @@
       <span id="progressLabel">1 / 1</span>
       <div class="score-badge">점수 <span id="scoreLabel">0</span></div>
     </div>
+
+    <!-- 문제 번호 네비게이션 -->
+    <div class="q-nav" id="qNav">
+      <button class="nav-arrow-btn" id="prevBtn" onclick="goPrev()" title="이전 문제">&#8592;</button>
+      <div class="q-chip-scroll">
+        <div class="q-chip-row" id="qChipRow"></div>
+      </div>
+      <button class="nav-arrow-btn" id="nextNavBtn" onclick="goNext()" title="다음 문제">&#8594;</button>
+    </div>
+
     <div id="quizCards"></div>
     <button class="next-btn" id="nextBtn" onclick="nextQuestion()">다음 문제 →</button>
     <div class="complete-card" id="completeCard">
@@ -336,7 +440,8 @@ const API_CONTENTS = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}
 let allQuestions = [];
 let currentIdx = 0;
 let score = 0;
-let answered = false;
+// 문제별 답변 상태: { answered, selectedIdx, isCorrect }
+let questionStates = [];
 
 // ─── 날짜 목록 로드 ─────────────────────────────────────
 async function loadDateList() {
@@ -386,6 +491,7 @@ async function loadDateGroup(dateKey, btn) {
   cards.innerHTML = '<div class="status-msg">퀴즈 불러오는 중...</div>';
   document.getElementById('nextBtn').classList.remove('show');
   document.getElementById('completeCard').classList.remove('show');
+  document.getElementById('qNav').style.display = 'none';
 
   const files = (window.__dateGroups && window.__dateGroups[dateKey]) || [];
   if (files.length === 0) {
@@ -404,6 +510,9 @@ async function loadDateGroup(dateKey, btn) {
     if (allQuestions.length === 0) throw new Error('퀴즈 없음');
     currentIdx = 0;
     score = 0;
+    questionStates = allQuestions.map(() => ({ answered: false, selectedIdx: null, isCorrect: null }));
+    document.getElementById('qNav').style.display = 'flex';
+    buildChips();
     renderQuestion();
   } catch(e) {
     cards.innerHTML = `<div class="status-msg">😅 퀴즈를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
@@ -442,7 +551,6 @@ function parseQuiz(raw) {
           answer = parseInt(l.match(/\d+/)[0]) - 1;
         } else if (/^해설:/.test(l)) {
           explanation = l.replace(/^해설:\s*/, '').trim();
-          // 다음 줄도 해설의 일부일 수 있음
           let k = j + 1;
           while (k < lines.length && lines[k].trim() && !/^Q\d+\./.test(lines[k].trim()) && !lines[k].trim().startsWith('[')) {
             const next = lines[k].trim();
@@ -466,6 +574,48 @@ function parseQuiz(raw) {
   return questions;
 }
 
+// ─── 칩 빌드 ─────────────────────────────────────────────
+function buildChips() {
+  const row = document.getElementById('qChipRow');
+  row.innerHTML = allQuestions.map((_, i) =>
+    `<button class="q-chip" id="chip${i}" onclick="goToQuestion(${i})">${i + 1}</button>`
+  ).join('');
+}
+
+function updateChips() {
+  allQuestions.forEach((_, i) => {
+    const chip = document.getElementById(`chip${i}`);
+    if (!chip) return;
+    chip.className = 'q-chip';
+    const st = questionStates[i];
+    if (st.answered) {
+      chip.classList.add(st.isCorrect ? 'q-correct' : 'q-wrong');
+    }
+    if (i === currentIdx) chip.classList.add('current');
+  });
+
+  // 현재 칩이 보이도록 스크롤
+  const chip = document.getElementById(`chip${currentIdx}`);
+  if (chip) {
+    chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
+
+  // 이전/다음 버튼 활성화
+  document.getElementById('prevBtn').disabled = currentIdx === 0;
+  document.getElementById('nextNavBtn').disabled = currentIdx >= allQuestions.length - 1;
+}
+
+// ─── 문제 이동 ───────────────────────────────────────────
+function goToQuestion(idx) {
+  if (idx < 0 || idx >= allQuestions.length) return;
+  currentIdx = idx;
+  renderQuestion();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goPrev() { goToQuestion(currentIdx - 1); }
+function goNext() { goToQuestion(currentIdx + 1); }
+
 // ─── 렌더링 ─────────────────────────────────────────────
 function renderQuestion() {
   const cards = document.getElementById('quizCards');
@@ -474,7 +624,6 @@ function renderQuestion() {
 
   complete.classList.remove('show');
   nextBtn.classList.remove('show');
-  answered = false;
 
   if (currentIdx >= allQuestions.length) {
     showComplete();
@@ -482,9 +631,11 @@ function renderQuestion() {
   }
 
   updateProgress();
+  updateChips();
 
   const q = allQuestions[currentIdx];
-  const isFirstInPost = currentIdx === 0 || allQuestions[currentIdx-1].post !== q.post;
+  const st = questionStates[currentIdx];
+  const isFirstInPost = currentIdx === 0 || allQuestions[currentIdx - 1].post !== q.post;
 
   cards.innerHTML = `
     ${isFirstInPost && q.post ? `<div class="post-title">📄 ${q.post}</div>` : ''}
@@ -494,7 +645,7 @@ function renderQuestion() {
       <div class="choices">
         ${q.choices.map((c, i) => `
           <button class="choice-btn" onclick="selectChoice(this, ${i})" data-idx="${i}">
-            <span class="num">${i+1}</span>
+            <span class="num">${i + 1}</span>
             <span>${c}</span>
           </button>
         `).join('')}
@@ -504,26 +655,44 @@ function renderQuestion() {
       </div>
     </div>
   `;
+
+  // 이미 답변한 문제면 상태 복원
+  if (st.answered) {
+    const allBtns = document.querySelectorAll('.choice-btn');
+    allBtns.forEach(b => { b.disabled = true; });
+    allBtns[st.selectedIdx].classList.add(st.isCorrect ? 'correct' : 'wrong');
+    if (!st.isCorrect) allBtns[q.answer].classList.add('highlight');
+    document.getElementById('exp').classList.add('show');
+
+    const isLast = currentIdx === allQuestions.length - 1;
+    nextBtn.textContent = isLast ? '결과 보기 🏆' : '다음 문제 →';
+    nextBtn.classList.add('show');
+  }
 }
 
 function selectChoice(btn, idx) {
-  if (answered) return;
-  answered = true;
+  const st = questionStates[currentIdx];
+  if (st.answered) return;
 
   const q = allQuestions[currentIdx];
+  const isCorrect = idx === q.answer;
+
+  st.answered = true;
+  st.selectedIdx = idx;
+  st.isCorrect = isCorrect;
+
+  if (isCorrect) score++;
+
   const allBtns = document.querySelectorAll('.choice-btn');
   allBtns.forEach(b => { b.disabled = true; });
 
-  if (idx === q.answer) {
-    btn.classList.add('correct');
-    score++;
-  } else {
-    btn.classList.add('wrong');
-    allBtns[q.answer].classList.add('highlight');
-  }
+  btn.classList.add(isCorrect ? 'correct' : 'wrong');
+  if (!isCorrect) allBtns[q.answer].classList.add('highlight');
 
   document.getElementById('exp').classList.add('show');
   document.getElementById('scoreLabel').textContent = score;
+
+  updateChips();
 
   const nextBtn = document.getElementById('nextBtn');
   const isLast = currentIdx === allQuestions.length - 1;
@@ -532,15 +701,20 @@ function selectChoice(btn, idx) {
 }
 
 function nextQuestion() {
-  currentIdx++;
-  renderQuestion();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (currentIdx >= allQuestions.length - 1) {
+    showComplete();
+  } else {
+    currentIdx++;
+    renderQuestion();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 }
 
 function updateProgress() {
   const total = allQuestions.length;
   const curr = currentIdx + 1;
-  const pct = (currentIdx / total) * 100;
+  const answeredCount = questionStates.filter(s => s.answered).length;
+  const pct = (answeredCount / total) * 100;
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressLabel').textContent = `${curr} / ${total}`;
 }
@@ -561,8 +735,10 @@ function showComplete() {
 function restartQuiz() {
   currentIdx = 0;
   score = 0;
+  questionStates = allQuestions.map(() => ({ answered: false, selectedIdx: null, isCorrect: null }));
   document.getElementById('completeCard').classList.remove('show');
   document.getElementById('scoreLabel').textContent = '0';
+  buildChips();
   renderQuestion();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
