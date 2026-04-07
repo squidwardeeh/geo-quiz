@@ -428,8 +428,31 @@ const API_CONTENTS = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}
 let allQuestions = [];
 let currentIdx = 0;
 let score = 0;
+let currentDateKey = '';
 // 문제별 답변 상태: { answered, selectedIdx, isCorrect }
 let questionStates = [];
+
+// ─── localStorage 저장/복원 ──────────────────────────────
+function saveState() {
+  try {
+    localStorage.setItem('geo-quiz-' + currentDateKey, JSON.stringify({ score, questionStates }));
+  } catch(e) {}
+}
+
+function loadSavedState() {
+  try {
+    const saved = localStorage.getItem('geo-quiz-' + currentDateKey);
+    if (!saved) return false;
+    const data = JSON.parse(saved);
+    if (data.questionStates && data.questionStates.length === allQuestions.length) {
+      questionStates = data.questionStates;
+      score = data.score || 0;
+      document.getElementById('scoreLabel').textContent = score;
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
 
 // ─── 날짜 목록 로드 ─────────────────────────────────────
 async function loadDateList() {
@@ -470,6 +493,7 @@ async function loadDateList() {
 
 // ─── 날짜 그룹 로드 (해당 날의 모든 파일 합산) ──────────
 async function loadDateGroup(dateKey, btn) {
+  currentDateKey = dateKey;
   document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 
@@ -499,6 +523,7 @@ async function loadDateGroup(dateKey, btn) {
     currentIdx = 0;
     score = 0;
     questionStates = allQuestions.map(() => ({ answered: false, selectedIdx: null, isCorrect: null }));
+    loadSavedState(); // 저장된 풀이 결과 복원
     document.getElementById('qNav').style.display = 'flex';
     buildChips();
     renderQuestion();
@@ -680,6 +705,7 @@ function selectChoice(btn, idx) {
   document.getElementById('scoreLabel').textContent = score;
 
   updateChips();
+  saveState(); // 풀이 결과 저장
 
   const nextBtn = document.getElementById('nextBtn');
   const isLast = currentIdx === allQuestions.length - 1;
@@ -723,6 +749,7 @@ function restartQuiz() {
   currentIdx = 0;
   score = 0;
   questionStates = allQuestions.map(() => ({ answered: false, selectedIdx: null, isCorrect: null }));
+  try { localStorage.removeItem('geo-quiz-' + currentDateKey); } catch(e) {}
   document.getElementById('completeCard').classList.remove('show');
   document.getElementById('scoreLabel').textContent = '0';
   buildChips();
