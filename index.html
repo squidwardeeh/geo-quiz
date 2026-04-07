@@ -345,38 +345,38 @@ async function loadDateList() {
     const res = await fetch(API_CONTENTS);
     if (!res.ok) throw new Error('API 오류');
     const files = await res.json();
-    const txts = files.filter(f => /^\d{8}\.txt$/.test(f.name)).sort((a,b) => b.name.localeCompare(a.name));
+    // YYYYMMDDHHmmss.txt 형식 (14자리)
+    const txts = files.filter(f => /^\d{14}\.txt$/.test(f.name)).sort((a,b) => b.name.localeCompare(a.name));
     if (txts.length === 0) {
       grid.innerHTML = '<div class="status-msg">아직 퀴즈 파일이 없습니다.</div>';
       return;
     }
-    grid.innerHTML = txts.map(f => {
-      const d = f.name.replace('.txt','');
-      const label = `${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}`;
-      return `<button class="date-btn" onclick="loadQuiz('${f.name}', this)">${label}</button>`;
+    // 날짜(앞 8자리)별 그룹핑
+    const groups = {};
+    txts.forEach(f => {
+      const dk = f.name.slice(0, 8);
+      if (!groups[dk]) groups[dk] = [];
+      groups[dk].push(f.name);
+    });
+    window.__dateGroups = groups;
+
+    const sortedDates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+    grid.innerHTML = sortedDates.map(dk => {
+      const label = `${dk.slice(0,4)}.${dk.slice(4,6)}.${dk.slice(6,8)}`;
+      const cnt = groups[dk].length;
+      const badge = cnt > 1 ? ` <span style="font-size:11px;opacity:.7">(${cnt}회)</span>` : '';
+      return `<button class="date-btn" onclick="loadDateGroup('${dk}', this)">${label}${badge}</button>`;
     }).join('');
     // 최신 날짜 자동 로드
     const firstBtn = grid.querySelector('.date-btn');
     if (firstBtn) firstBtn.click();
   } catch(e) {
-    // GitHub API 실패 시 raw URL로 오늘 날짜 직접 시도
-    const today = getTodayStr();
-    grid.innerHTML = `<button class="date-btn" onclick="loadQuiz('${today}.txt', this)">${today.slice(0,4)}.${today.slice(4,6)}.${today.slice(6,8)}</button>`;
-    grid.querySelector('.date-btn').click();
+    grid.innerHTML = '<div class="status-msg">목록을 불러올 수 없습니다.</div>';
   }
 }
 
-function getTodayStr() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const dd = String(d.getDate()).padStart(2,'0');
-  return `${y}${m}${dd}`;
-}
-
-// ─── 퀴즈 파일 로드 & 파싱 ─────────────────────────────
-async function loadQuiz(filename, btn) {
-  // 날짜 버튼 활성화
+// ─── 날짜 그룹 로드 (해당 날의 모든 파일 합산) ──────────
+async function loadDateGroup(dateKey, btn) {
   document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 
@@ -387,17 +387,26 @@ async function loadQuiz(filename, btn) {
   document.getElementById('nextBtn').classList.remove('show');
   document.getElementById('completeCard').classList.remove('show');
 
+  const files = (window.__dateGroups && window.__dateGroups[dateKey]) || [];
+  if (files.length === 0) {
+    cards.innerHTML = '<div class="status-msg">해당 날짜의 파일이 없습니다.</div>';
+    return;
+  }
+
   try {
-    const res = await fetch(`${RAW_BASE}/${filename}?t=${Date.now()}`);
-    if (!res.ok) throw new Error('파일 없음');
-    const text = await res.text();
-    allQuestions = parseQuiz(text);
+    // 해당 날짜의 모든 파일을 병렬 로드 후 합치기
+    const texts = await Promise.all(files.map(async fname => {
+      const r = await fetch(`${RAW_BASE}/${fname}?t=${Date.now()}`);
+      return r.ok ? await r.text() : '';
+    }));
+    const combined = texts.filter(t => t.trim()).join('\n\n');
+    allQuestions = parseQuiz(combined);
     if (allQuestions.length === 0) throw new Error('퀴즈 없음');
     currentIdx = 0;
     score = 0;
     renderQuestion();
   } catch(e) {
-    cards.innerHTML = `<div class="status-msg">😅 퀴즈 파일을 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
+    cards.innerHTML = `<div class="status-msg">😅 퀴즈를 불러올 수 없습니다.<br><small>${e.message}</small></div>`;
   }
 }
 
